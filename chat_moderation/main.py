@@ -1,21 +1,28 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from detoxify import Detoxify
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import torch
+from openai import OpenAI
+import os
 
 app = FastAPI()
 
 # Load Detoxify model for toxicity detection
 tox_model = Detoxify("original")
 
-# Load paraphrasing model (T5-based)
-para_model_name = "Vamsi/T5_Paraphrase_Paws"
-tokenizer = AutoTokenizer.from_pretrained(para_model_name)
-model = AutoModelForSeq2SeqLM.from_pretrained(para_model_name)
+# Use API key from environment variable
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class Message(BaseModel):
     text: str
+
+def rephrase_with_gpt(text):
+    prompt = f"Rewrite this message politely and respectfully without changing the meaning:\n\n{text}"
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    return response.choices[0].message.content.strip()
 
 @app.post("/moderate")
 async def moderate(msg: Message):
@@ -26,11 +33,7 @@ async def moderate(msg: Message):
     if toxicity <= 0.5:
         result = {"allowed": True}
     else:
-        prompt = "paraphrase: " + text + " </s>"
-        input_ids = tokenizer.encode(prompt, return_tensors="pt", max_length=512, truncation=True)
-        with torch.no_grad():
-            outputs = model.generate(input_ids, max_length=100, num_beams=5, early_stopping=True)
-        rephrased = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        rephrased = rephrase_with_gpt(text)
         result = {"allowed": False, "rephrased": rephrased}
 
     print("Text:", text)
