@@ -3,24 +3,22 @@ import re
 import json
 import asyncio
 import anyio
-from typing import List, Dict
-from concurrent.futures import ProcessPoolExecutor
-from functools import partial
+from typing import List, Dict, Optional
 
+import google.generativeai as genai
+from detoxify import Detoxify
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from dotenv import load_dotenv
-
-# ML / AI Imports
-from detoxify import Detoxify
-import google.genai as genai
 from transformers import pipeline
 
 load_dotenv()
 
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,22 +29,18 @@ app.add_middleware(
 
 templates = Jinja2Templates(directory="templates")
 
-# Global Executor for CPU-bound ML models (Detoxify/T5)
-# This prevents blocking the Event Loop
-executor = ProcessPoolExecutor(max_workers=2)
-
-# Global Model Instances
+# Singletons
 tox_model = Detoxify("original")
+
+# Initialize API clients
+gemini_model = None
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 
 if gemini_api_key:
-    gemini_client = genai.Client(api_key=gemini_api_key)
-    gemini_model_name = 'gemini-pro'
-else:
-    gemini_client = None
-    gemini_model_name = None
+    genai.configure(api_key=gemini_api_key)
+    gemini_model = genai.GenerativeModel('gemini-pro')
 
-# Local Fallback Initialization
+# Local fallback model: T5-Paws
 paraphrase_pipeline = pipeline(
     "text2text-generation",
     model="Vamsi/T5_Paraphrase_Paws",
@@ -66,102 +60,203 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
     
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
+        for connection in self.active_connections[:]:
             try:
                 await connection.send_text(message)
-            except:
+            except Exception:
                 self.disconnect(connection)
 
 manager = ConnectionManager()
 
-# --- Utility Functions ---
-
-def sync_toxicity_check(text: str):
-    """CPU-bound toxicity prediction."""
-    scores = tox_model.predict(text)
-    return float(scores.get("toxicity", 0))
-
-def sync_local_paraphrase(text: str):
-    """CPU-bound T5 paraphrasing."""
-    input_text = f"paraphrase: {text}"
-    result = paraphrase_pipeline(input_text, max_length=128, do_sample=True, temperature=0.7)
-    return result[0]['generated_text']
+class Message(BaseModel):
+    text: str
 
 def clean_rephrased_text(text: str) -> str:
-    text = text.strip().strip('"\'').replace("**", "")
-    prefixes = ["polite version:", "rewritten text:", "the rewritten message is:"]
-    for p in prefixes:
-        if text.lower().startswith(p):
-            text = text[len(p):].strip().lstrip(":;-— ")
-    return text.strip().strip('"\'')
+    """Clean up AI-generated text by removing quotes, explanations, and prefixes."""
+    text = text.strip()
+    text = re.sub(r'^["\']|["\']$', '', text)
+    text = re.sub(r'^\*\*|!\*\*$', '', text)
+    
+    prefixes_to_remove = [
+        "Here's a polite version:",
+        "Rewritten text:",
+        "Polite version:",
+        "Here is the rewritten text:",
+        "The rewritten message is:",
+    ]
+    
+    for prefix in prefixes_to_remove:
+        if text.lower().startswith(prefix.lower()):
+            text = text[len(prefix):].strip()
+            text = re.sub(r'^[:;\-—]\s*', '', text)
+    
+    text = re.sub(r'^["\']|["\']$', '', text)
+    return text.strip()
 
-# --- Logic Wrappers ---
+def is_valid_rephrasing(original: str, rephrased: str) -> bool:
+    """Check if the rephrased text is valid and meaningful."""
+    if not rephrased or len(rephrased) < 3:
+        return False
+    
+    refusal_patterns = [
+        "i cannot", "i can't", "i'm unable", "i am unable",
+        "sorry", "apologize", "inappropriate",
+        "i don't feel comfortable", "i cannot assist"
+    ]
+    
+    rephrased_lower = rephrased.lower()
+    if any(pattern in rephrased_lower for pattern in refusal_patterns):
+        return False
+    
+    if rephrased.lower() == original.lower():
+        return False
+    
+    return True
 
-async def get_rephrased_text(text: str) -> str:
-    """Primary: Gemini | Secondary: T5 | Tertiary: Hardcoded Fallback"""
-    # 1. Try Gemini
-    if gemini_client is not None and gemini_model_name is not None:
-        try:
-            prompt = f"Rewrite this toxic message to be professional and polite in 1 sentence: {text}"
-            loop = asyncio.get_event_loop()
-            # Use the new API: call generate_content directly on client.models
-            # mypy: ignore type issue since we checked that gemini_model_name is not None
-            response = await loop.run_in_executor(None, lambda: gemini_client.models.generate_content(  # type: ignore
-                model=gemini_model_name,  # type: ignore
-                contents=prompt
-            ))
-            if hasattr(response, 'text') and response.text:
-                return clean_rephrased_text(response.text)
-        except Exception:
-            pass
+def create_generic_polite_message(original_text: str) -> str:
+    """Create a generic polite message when rephrasing fails."""
+    text_lower = original_text.lower()
+    
+    if any(word in text_lower for word in ["disagree", "wrong", "no", "don't"]):
+        return "I respectfully disagree with that perspective."
+    elif any(word in text_lower for word in ["****", "****", "****"]):
+        return "I have a different viewpoint on this matter."
+    elif any(word in text_lower for word in ["hate", "awful", "terrible"]):
+        return "I have concerns about this."
+    elif "?" in original_text:
+        return "Could you please clarify your point?"
+    else:
+        return "Thank you for sharing your thoughts. I'd like to discuss this further."
 
-    # 2. Try Local T5 (via ProcessPool)
+def local_paraphrase(text: str, max_length: int = 128) -> str:
+    """Enhanced local fallback using T5 with post-processing."""
     try:
-        loop = asyncio.get_event_loop()
-        raw_t5 = await loop.run_in_executor(executor, sync_local_paraphrase, text)
-        return clean_rephrased_text(raw_t5)
+        input_text = f"paraphrase: {text}"
+        result = paraphrase_pipeline(
+            input_text, 
+            max_length=max_length, 
+            num_return_sequences=1,
+            do_sample=True,
+            temperature=0.7
+        )
+        rephrased = result[0]['generated_text']
+        rephrased = clean_rephrased_text(rephrased)
+        
+        if is_valid_rephrasing(text, rephrased):
+            return rephrased
+        return create_generic_polite_message(text)
     except Exception:
-        return "I would prefer to discuss this in a more constructive manner."
+        return create_generic_polite_message(text)
 
-# --- API Endpoints ---
+def rephrase_with_gemini(text: str) -> Optional[str]:
+    """Enhanced rephrasing using Google Gemini with better prompting."""
+    if not gemini_model:
+        return None
+        
+    try:
+        prompt = (
+            f"You are a professional communication expert. Your task is to transform toxic or rude messages "
+            f"into polite, professional equivalents while preserving the core message intent.\n\n"
+            f"Rules:\n1. Output ONLY the rewritten text - no explanations, quotes, or prefixes\n"
+            f"2. Keep the message concise (1 sentence maximum)\n3. Preserve the original intent and meaning\n"
+            f"4. Make it professional and respectful\n5. Do not add apologies or refusals\n\n"
+            f"Original message: {text}\n\nPolite version:"
+        )
+
+        response = gemini_model.generate_content(
+            prompt,
+            generation_config={
+                'temperature': 0.3,
+                'top_p': 0.8,
+                'top_k': 40,
+                'max_output_tokens': 100,
+            }
+        )
+        
+        text_content = None
+        if hasattr(response, 'text') and response.text:
+            text_content = response.text
+        elif response.candidates and response.candidates[0].content.parts:
+            text_content = response.candidates[0].content.parts[0].text
+        
+        if text_content:
+            rephrased = clean_rephrased_text(text_content)
+            if is_valid_rephrasing(text, rephrased):
+                return rephrased
+        return None
+    except Exception as e:
+        print(f"Gemini error: {e}")
+        return None
+
+async def rephrase_logic(text: str) -> str:
+    """Core rephrasing logic with Gemini primary and local fallback."""
+    result = await anyio.to_thread.run_sync(rephrase_with_gemini, text)
+    if result:
+        return result
+    
+    result = await anyio.to_thread.run_sync(local_paraphrase, text)
+    return result
+
+@app.post("/moderate")
+async def moderate(msg: Message):
+    text = msg.text.strip()
+    tox_scores = await anyio.to_thread.run_sync(tox_model.predict, text)
+    toxicity = float(tox_scores.get("toxicity", 0))
+
+    if toxicity <= 0.5:
+        return {"allowed": True, "score": round(toxicity, 3), "text": text}
+    
+    rephrased_text = await rephrase_logic(text)
+    return {
+        "allowed": False, 
+        "score": round(toxicity, 3), 
+        "original": text,
+        "rephrased": rephrased_text
+    }
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    loop = asyncio.get_event_loop()
-    
     try:
         while True:
             data = await websocket.receive_text()
             message_data = json.loads(data)
-            text = message_data.get('text', '').strip()
+            
+            text = message_data['text']
             username = message_data.get('username', 'Anonymous')
-
-            if not text: continue
-
-            # RUN IN PARALLEL: Toxicity Check and Rephrasing Potential
-            # This cuts total latency by ~40%
-            toxicity_task = loop.run_in_executor(executor, sync_toxicity_check, text)
-            rephrase_task = get_rephrased_text(text)
-
-            toxicity_score, rephrased_text = await asyncio.gather(toxicity_task, rephrase_task)
-
-            is_toxic = toxicity_score > 0.5
-            display_text = rephrased_text if is_toxic else text
-
-            response = {
+            
+            tox_scores = await anyio.to_thread.run_sync(tox_model.predict, text)
+            toxicity = float(tox_scores.get("toxicity", 0))
+            
+            response_data = {
                 "username": username,
-                "display_text": display_text,
-                "toxicity": round(toxicity_score, 3),
-                "is_moderated": is_toxic,
-                "timestamp": loop.time()
+                "original_text": text,
+                "toxicity": round(toxicity, 3),
+                "timestamp": asyncio.get_event_loop().time()
             }
             
-            await manager.broadcast(json.dumps(response))
-
+            if toxicity <= 0.5:
+                response_data.update({"allowed": True, "display_text": text})
+            else:
+                rephrased_text = await rephrase_logic(text)
+                response_data.update({
+                    "allowed": False,
+                    "display_text": rephrased_text,
+                    "original_displayed": False
+                })
+            
+            await manager.broadcast(json.dumps(response_data))
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    executor.shutdown()
+@app.get("/")
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/sender")
+async def sender_view(request: Request):
+    return templates.TemplateResponse("sender.html", {"request": request})
+
+@app.get("/receiver")
+async def receiver_view(request: Request):
+    return templates.TemplateResponse("receiver.html", {"request": request})

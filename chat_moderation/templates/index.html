@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toxicity Shield</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-dark: #0b141a;
+            --panel-bg: #111b21;
+            --input-bg: #2a3942;
+            --accent-green: #00a884;
+            --text-main: #e9edef;
+            --text-dim: #8696a0;
+            --bubble-sent: #005c4b;
+            --bubble-warning: #182229;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-main); height: 100vh; display: flex; justify-content: center; align-items: center; }
+
+        .app-container {
+            width: 100%; max-width: 600px; height: 95vh;
+            background: var(--panel-bg); display: flex; flex-direction: column;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5); border-radius: 8px; overflow: hidden;
+        }
+
+        .header { padding: 20px; border-bottom: 1px solid #222d34; display: flex; align-items: center; gap: 15px; }
+        .header h2 { font-size: 1.1rem; font-weight: 500; }
+        .status-dot { width: 10px; height: 10px; background: var(--accent-green); border-radius: 50%; }
+
+        .chat-view { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth; }
+        
+        .bubble { max-width: 80%; padding: 8px 12px; border-radius: 8px; font-size: 0.95rem; position: relative; line-height: 1.4; }
+        .sent { align-self: flex-end; background: var(--bubble-sent); border-top-right-radius: 2px; }
+        .system { align-self: center; background: var(--bubble-warning); color: #ffd700; border: 1px solid #333; font-size: 0.8rem; border-radius: 4px; }
+        
+        .time { font-size: 0.7rem; color: rgba(255,255,255,0.5); margin-top: 4px; text-align: right; }
+
+        .input-bar { padding: 12px 16px; background: var(--panel-bg); display: flex; gap: 12px; align-items: flex-end; }
+        textarea {
+            flex: 1; background: var(--input-bg); border: none; outline: none;
+            color: white; padding: 10px 15px; border-radius: 20px; resize: none;
+            height: 42px; max-height: 120px; font-size: 0.95rem;
+        }
+        button {
+            background: var(--accent-green); border: none; width: 42px; height: 42px;
+            border-radius: 50%; color: white; cursor: pointer; flex-shrink: 0;
+            transition: transform 0.1s;
+        }
+        button:active { transform: scale(0.9); }
+
+        .loader { font-size: 0.8rem; color: var(--text-dim); text-align: center; padding: 10px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="header">
+        <div class="status-dot"></div>
+        <div>
+            <h2>Moderator AI</h2>
+            <p style="font-size: 0.75rem; color: var(--text-dim);">Auto-rephrasing active</p>
+        </div>
+    </div>
+
+    <div class="chat-view" id="chatView">
+        <div class="system bubble">Active: Toxic messages will be automatically rephrased.</div>
+    </div>
+
+    <div id="loader" class="loader"><i class="fas fa-circle-notch fa-spin"></i> Analyzing...</div>
+
+    <div class="input-bar">
+        <textarea id="userInput" placeholder="Type a message..." rows="1"></textarea>
+        <button id="sendBtn"><i class="fas fa-paper-plane"></i></button>
+    </div>
+</div>
+
+<script>
+    const chatView = document.getElementById('chatView');
+    const userInput = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const loader = document.getElementById('loader');
+
+    function createBubble(text, type) {
+        const div = document.createElement('div');
+        div.className = `bubble ${type}`;
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        div.innerHTML = `<div>${text}</div><div class="time">${timestamp}</div>`;
+        chatView.appendChild(div);
+        chatView.scrollTop = chatView.scrollHeight;
+    }
+
+    async function handleAction() {
+        const msg = userInput.value.trim();
+        if (!msg) return;
+
+        userInput.value = '';
+        userInput.style.height = '42px';
+        loader.style.display = 'block';
+
+        try {
+            const res = await fetch('/moderate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: msg })
+            });
+            const data = await res.json();
+            
+            loader.style.display = 'none';
+
+            if (data.allowed) {
+                createBubble(msg, 'sent');
+            } else {
+                // Replacement Logic: Display rephrased version
+                createBubble(data.rephrased, 'sent');
+                createBubble(`🛡️ Rephrased (Toxicity: ${Math.round(data.score * 100)}%)`, 'system');
+            }
+        } catch (e) {
+            loader.style.display = 'none';
+            createBubble("Connection Error", "system");
+        }
+    }
+
+    sendBtn.onclick = handleAction;
+    userInput.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAction(); } };
+    userInput.oninput = function() { 
+        this.style.height = 'auto'; 
+        this.style.height = (this.scrollHeight > 120 ? 120 : this.scrollHeight) + 'px'; 
+    };
+</script>
+</body>
+</html>
