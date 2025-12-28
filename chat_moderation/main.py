@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from transformers import pipeline
+from openai import OpenAI
 
 load_dotenv()
 
@@ -38,7 +39,17 @@ gemini_api_key = os.getenv("GEMINI_API_KEY")
 
 if gemini_api_key:
     genai.configure(api_key=gemini_api_key)
-    gemini_model = genai.GenerativeModel('gemini-pro')
+    gemini_model = genai.GenerativeModel(model_name='gemini-1.0-pro')
+
+# Initialize OpenAI client for AIML API
+aiml_client = None
+aiml_api_key = os.getenv("AIMLAPI_KEY")
+
+if aiml_api_key:
+    aiml_client = OpenAI(
+        base_url="https://api.aimlapi.com/v1",
+        api_key=aiml_api_key,
+    )
 
 # Local fallback model: T5-Paws
 paraphrase_pipeline = pipeline(
@@ -114,30 +125,37 @@ def is_valid_rephrasing(original: str, rephrased: str) -> bool:
     return True
 
 def create_generic_polite_message(original_text: str) -> str:
-    """Create a generic polite message when rephrasing fails."""
+    """Create a context-aware polite message when rephrasing fails."""
     text_lower = original_text.lower()
     
-    if any(word in text_lower for word in ["disagree", "wrong", "no", "don't"]):
-        return "I respectfully disagree with that perspective."
-    elif any(word in text_lower for word in ["****", "****", "****"]):
-        return "I have a different viewpoint on this matter."
-    elif any(word in text_lower for word in ["hate", "awful", "terrible"]):
-        return "I have concerns about this."
+    # Try to maintain context while making it polite
+    if any(word in text_lower for word in ["stupid", "dumb", "idiot", "moron"]):
+        return "I don't think that's the best approach."
+    elif any(word in text_lower for word in ["hate", "awful", "terrible", "worst"]):
+        return "I'm not comfortable with this."
+    elif any(word in text_lower for word in ["shut up", "shut", "quiet"]):
+        return "I'd prefer if we could pause this conversation."
+    elif any(word in text_lower for word in ["wrong", "disagree", "no"]):
+        return "I have a different perspective on this."
+    elif any(word in text_lower for word in ["ugly", "bad", "trash"]):
+        return "I don't think this meets our standards."
     elif "?" in original_text:
-        return "Could you please clarify your point?"
+        return "Could you help me understand this better?"
     else:
-        return "Thank you for sharing your thoughts. I'd like to discuss this further."
+        # Try to preserve some context from the original
+        return "I'd like to express this more constructively."
 
 def local_paraphrase(text: str, max_length: int = 128) -> str:
-    """Enhanced local fallback using T5 with post-processing."""
+    """Enhanced local fallback using T5 with context preservation."""
     try:
-        input_text = f"paraphrase: {text}"
+        # Better prompt for context preservation
+        input_text = f"rephrase politely while keeping the meaning: {text}"
         result = paraphrase_pipeline(
             input_text, 
             max_length=max_length, 
             num_return_sequences=1,
             do_sample=True,
-            temperature=0.7
+            temperature=0.5  # Lower temperature for more consistent results
         )
         rephrased = result[0]['generated_text']
         rephrased = clean_rephrased_text(rephrased)
@@ -149,51 +167,97 @@ def local_paraphrase(text: str, max_length: int = 128) -> str:
         return create_generic_polite_message(text)
 
 def rephrase_with_gemini(text: str) -> Optional[str]:
-    """Enhanced rephrasing using Google Gemini with better prompting."""
     if not gemini_model:
         return None
         
     try:
+        # Use delimiters to help the model distinguish instructions from toxic input
         prompt = (
-            f"You are a professional communication expert. Your task is to transform toxic or rude messages "
-            f"into polite, professional equivalents while preserving the core message intent.\n\n"
-            f"Rules:\n1. Output ONLY the rewritten text - no explanations, quotes, or prefixes\n"
-            f"2. Keep the message concise (1 sentence maximum)\n3. Preserve the original intent and meaning\n"
-            f"4. Make it professional and respectful\n5. Do not add apologies or refusals\n\n"
-            f"Original message: {text}\n\nPolite version:"
+            "TASK: Rewrite the following message to be polite and respectful while PRESERVING the original meaning and context.\n"
+            "RULES:\n"
+            "- Keep the SAME message intent and context\n"
+            "- Only make it polite, respectful, and appropriate\n"
+            "- Output ONLY the rewritten text (no quotes, no explanations)\n"
+            "- Keep it natural and conversational\n"
+            f"ORIGINAL MESSAGE: \"\"\"{text}\"\"\"\n\n"
+            "POLITE VERSION:"
         )
 
         response = gemini_model.generate_content(
             prompt,
             generation_config={
-                'temperature': 0.3,
-                'top_p': 0.8,
-                'top_k': 40,
+                'temperature': 0.1, # Lowered for consistency
                 'max_output_tokens': 100,
             }
         )
         
-        text_content = None
-        if hasattr(response, 'text') and response.text:
-            text_content = response.text
-        elif response.candidates and response.candidates[0].content.parts:
-            text_content = response.candidates[0].content.parts[0].text
-        
-        if text_content:
+        # Safe extraction logic
+        if not response.candidates:
+            return None
+            
+        candidate = response.candidates[0]
+        if candidate.finish_reason == 3: # Safety block
+            return None
+            
+        if candidate.content.parts:
+            text_content = candidate.content.parts[0].text
             rephrased = clean_rephrased_text(text_content)
             if is_valid_rephrasing(text, rephrased):
                 return rephrased
+        
         return None
     except Exception as e:
         print(f"Gemini error: {e}")
         return None
 
+
+def rephrase_with_aiml(text: str) -> Optional[str]:
+    if not aiml_client:
+        return None
+        
+    try:
+        # Use delimiters to help the model distinguish instructions from toxic input
+        prompt = (
+            "TASK: Rewrite the following message to be polite and respectful while PRESERVING the original meaning and context.\n"
+            "RULES:\n"
+            "- Keep the SAME message intent and context\n"
+            "- Only make it polite, respectful, and appropriate\n"
+            "- Output ONLY the rewritten text (no quotes, no explanations)\n"
+            "- Keep it natural and conversational\n"
+            f"ORIGINAL MESSAGE: \"\"\"{text}\"\"\"\n\n"
+            "POLITE VERSION:"
+        )
+
+        response = aiml_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=100,
+        )
+        
+        if response.choices and len(response.choices) > 0:
+            rephrased = clean_rephrased_text(response.choices[0].message.content)
+            if is_valid_rephrasing(text, rephrased):
+                return rephrased
+        
+        return None
+    except Exception as e:
+        print(f"AIML API error: {e}")
+        return None
+
 async def rephrase_logic(text: str) -> str:
-    """Core rephrasing logic with Gemini primary and local fallback."""
+    """Core rephrasing logic with AIML API primary, then Gemini, then local fallback."""
+    # Try AIML API first
+    result = await anyio.to_thread.run_sync(rephrase_with_aiml, text)
+    if result:
+        return result
+    
+    # Then try Gemini
     result = await anyio.to_thread.run_sync(rephrase_with_gemini, text)
     if result:
         return result
     
+    # Finally use local fallback
     result = await anyio.to_thread.run_sync(local_paraphrase, text)
     return result
 
@@ -252,6 +316,10 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/")
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/demo")
+async def demo_instructions(request: Request):
+    return templates.TemplateResponse("demo.html", {"request": request})
 
 @app.get("/sender")
 async def sender_view(request: Request):

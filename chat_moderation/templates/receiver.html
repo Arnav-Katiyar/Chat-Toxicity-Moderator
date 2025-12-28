@@ -91,9 +91,9 @@
         // Display the message as received (already moderated)
         createBubble(`${data.username}: ${data.display_text}`, 'received');
         
-        // Show toxicity info if message was originally toxic
+        // Only show that message was filtered, without toxicity percentage
         if (!data.allowed) {
-            createBubble(`🛡️ Filtered (Original toxicity: ${Math.round(data.toxicity * 100)}%)`, 'system');
+            createBubble(`🛡️ Message was moderated for appropriateness`, 'system');
         }
     };
 

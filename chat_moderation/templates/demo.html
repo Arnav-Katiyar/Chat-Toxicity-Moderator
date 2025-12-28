@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Instructions - Chat Toxicity Moderator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 18px;
+        }
+        .step {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .step h2 {
+            color: #667eea;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .link-box {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            text-align: center;
+        }
+        .link-box a {
+            color: #1976d2;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        .link-box a:hover {
+            text-decoration: underline;
+        }
+        .demo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .demo-card {
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .demo-card h3 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        .example {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .example strong {
+            color: #856404;
+        }
+        .badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin: 5px;
+        }
+        .badge-toxic {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .badge-safe {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Chat Toxicity Moderator</h1>
+        <p class="subtitle">Real-time message moderation with AI rephrasing</p>
+
+        <div class="step">
+            <h2><span class="step-number">1</span> Open Sender Window</h2>
+            <div class="link-box">
+                <a href="http://localhost:8000/sender" target="_blank">
+                    👤 Open Sender View →
+                </a>
+            </div>
+            <p>This is where you (the sender) type messages. You'll see your original messages.</p>
+        </div>
+
+        <div class="step">
+            <h2><span class="step-number">2</span> Open Receiver Window</h2>
+            <div class="link-box">
+                <a href="http://localhost:8000/receiver" target="_blank">
+                    👥 Open Receiver View →
+                </a>
+            </div>
+            <p>This is what your friend sees. They only see polite, moderated versions.</p>
+        </div>
+
+        <div class="step">
+            <h2><span class="step-number">3</span> Try These Test Messages</h2>
+            
+            <div class="example">
+                <strong>Test 1:</strong> "You're an idiot!"
+                <br><span class="badge badge-toxic">TOXIC (85%)</span>
+                <br>→ <em>Becomes: "I respectfully disagree with that perspective."</em>
+            </div>
+
+            <div class="example">
+                <strong>Test 2:</strong> "This is stupid and you're wrong"
+                <br><span class="badge badge-toxic">TOXIC (72%)</span>
+                <br>→ <em>Becomes: "I have a different viewpoint on this matter."</em>
+            </div>
+
+            <div class="example">
+                <strong>Test 3:</strong> "Hello, how are you?"
+                <br><span class="badge badge-safe">SAFE (5%)</span>
+                <br>→ <em>Stays: "Hello, how are you?" (unchanged)</em>
+            </div>
+
+            <div class="example">
+                <strong>Test 4:</strong> "I hate this"
+                <br><span class="badge badge-toxic">TOXIC (68%)</span>
+                <br>→ <em>Becomes: "I have concerns about this."</em>
+            </div>
+        </div>
+
+        <div class="step">
+            <h2><span class="step-number">4</span> What You'll See</h2>
+            
+            <div class="demo-grid">
+                <div class="demo-card">
+                    <h3>👤 Sender View</h3>
+                    <p>✅ See your original message</p>
+                    <p>✅ Type anything you want</p>
+                    <p>✅ No filtering</p>
+                </div>
+                
+                <div class="demo-card">
+                    <h3>👥 Receiver View</h3>
+                    <p>🛡️ Only polite versions</p>
+                    <p>🛡️ Protected from toxicity</p>
+                    <p>🛡️ Automatic moderation</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <h2><span class="step-number">5</span> How It Works</h2>
+            <p>1. <strong>Sender</strong> types a message</p>
+            <p>2. <strong>AI</strong> analyzes toxicity (0-100%)</p>
+            <p>3. If toxicity > 50%, message is <strong>rephrased</strong></p>
+            <p>4. <strong>Receiver</strong> sees only the polite version</p>
+            <p>5. <strong>Real-time</strong> via WebSockets</p>
+        </div>
+
+        <div class="step" style="background: #e8f5e9; border-left-color: #4caf50;">
+            <h2 style="color: #2e7d32;">✅ Server Status</h2>
+            <p>Your server should be running at: <code>http://localhost:8000</code></p>
+            <p>If not, run: <code>uvicorn main:app --reload</code></p>
+        </div>
+    </div>
+</body>
+</html>
