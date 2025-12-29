@@ -79,6 +79,9 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Separate manager for moderator WebSocket
+moderator_manager = ConnectionManager()
+
 class Message(BaseModel):
     text: str
 
@@ -313,9 +316,46 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-@app.get("/")
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+# NEW: Moderator WebSocket endpoint
+@app.websocket("/ws/moderator")
+async def moderator_websocket(websocket: WebSocket):
+    await moderator_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message_data = json.loads(data)
+            
+            text = message_data['text']
+            
+            # Step 1: Compute toxicity
+            tox_scores = await anyio.to_thread.run_sync(tox_model.predict, text)
+            toxicity = float(tox_scores.get("toxicity", 0))
+            
+            # Step 2: Decide if rephrasing is needed (threshold 0.70)
+            moderated = toxicity >= 0.50
+            
+            if moderated:
+                # Rephrase the message
+                final_text = await rephrase_logic(text)
+            else:
+                # Forward as-is
+                final_text = text
+            
+            # Step 3: Broadcast structured response
+            response = {
+                "original": text,
+                "final": final_text,
+                "toxicity": round(toxicity, 3),
+                "moderated": moderated
+            }
+            
+            await moderator_manager.broadcast(json.dumps(response))
+    except WebSocketDisconnect:
+        moderator_manager.disconnect(websocket)
+
+@app.get("/moderator")
+async def moderator_page(request: Request):
+    return templates.TemplateResponse("moderator.html", {"request": request})
 
 @app.get("/demo")
 async def demo_instructions(request: Request):

@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Moderator Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-dark: #0b141a;
+            --panel-bg: #111b21;
+            --input-bg: #2a3942;
+            --accent-green: #00a884;
+            --text-main: #e9edef;
+            --text-dim: #8696a0;
+            --bubble-sent: #005c4b;
+            --bubble-received: #005c4b;
+            --bubble-warning: #182229;
+            --border-color: #222d34;
+            --red-alert: #ff4757;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .top-header {
+            background: var(--panel-bg);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .top-header h1 {
+            font-size: 1.2rem;
+            font-weight: 500;
+            color: var(--text-main);
+            margin-bottom: 4px;
+        }
+
+        .top-header p {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--red-alert);
+            margin-left: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background: var(--accent-green);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            gap: 2px;
+            background: var(--bg-dark);
+            overflow: hidden;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .left-panel,
+        .right-panel {
+            flex: 1;
+            min-width: 320px;
+        }
+
+        .center-panel {
+            flex: 1;
+            min-width: 380px;
+            background: var(--bg-dark);
+        }
+
+        .panel-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--panel-bg);
+        }
+
+        .panel-header h2 {
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        .panel-header p {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        /* LEFT PANEL - SENDER */
+        .chat-view {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            scroll-behavior: smooth;
+        }
+
+        .bubble {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            position: relative;
+            line-height: 1.4;
+        }
+
+        .sent {
+            align-self: flex-end;
+            background: var(--bubble-sent);
+            border-top-right-radius: 2px;
+        }
+
+        .received {
+            align-self: flex-start;
+            background: var(--input-bg);
+            border-top-left-radius: 2px;
+        }
+
+        .system {
+            align-self: center;
+            background: var(--bubble-warning);
+            color: #ffd700;
+            border: 1px solid #333;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .time {
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 4px;
+            text-align: right;
+        }
+
+        .input-bar {
+            padding: 12px 16px;
+            background: var(--panel-bg);
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+            border-top: 1px solid var(--border-color);
+        }
+
+        textarea {
+            flex: 1;
+            background: var(--input-bg);
+            border: none;
+            outline: none;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 20px;
+            resize: none;
+            height: 42px;
+            max-height: 120px;
+            font-size: 0.95rem;
+        }
+
+        button {
+            background: var(--accent-green);
+            border: none;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            color: white;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: transform 0.1s;
+        }
+
+        button:active {
+            transform: scale(0.9);
+        }
+
+        button:hover {
+            background: #00957a;
+        }
+
+        /* CENTER PANEL - MODERATION ENGINE */
+        .moderation-content {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .toxicity-card {
+            background: var(--panel-bg);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .toxicity-label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toxicity-score {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            transition: color 0.3s;
+        }
+
+        .toxicity-score.safe {
+            color: var(--accent-green);
+        }
+
+        .toxicity-score.toxic {
+            color: var(--red-alert);
+        }
+
+        .toxicity-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--input-bg);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .toxicity-bar-fill {
+            height: 100%;
+            transition: all 0.5s ease;
+            border-radius: 4px;
+        }
+
+        .threshold-text {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-align: center;
+        }
+
+        .decision-card {
+            background: var(--panel-bg);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .decision-label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .decision-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .decision-status.forwarding {
+            background: rgba(0, 168, 132, 0.1);
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .decision-status.rephrasing {
+            background: rgba(255, 71, 87, 0.1);
+            border-left: 4px solid var(--red-alert);
+        }
+
+        .decision-icon {
+            font-size: 28px;
+        }
+
+        .decision-text {
+            flex: 1;
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        .flow-diagram {
+            background: var(--panel-bg);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .flow-title {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .flow-step {
+            font-size: 0.85rem;
+            color: var(--text-main);
+            margin: 8px 0;
+        }
+
+        .flow-arrow {
+            color: var(--accent-green);
+            font-size: 1.2rem;
+            margin: 5px 0;
+        }
+
+        /* RIGHT PANEL - RECEIVER */
+        .empty-state {
+            text-align: center;
+            color: var(--text-dim);
+            padding: 40px 20px;
+            font-size: 0.9rem;
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+
+        .moderation-notice {
+            font-size: 0.75rem;
+            color: #ffd700;
+            background: var(--bubble-warning);
+            padding: 6px 10px;
+            border-radius: 4px;
+            margin-top: 6px;
+            border-left: 3px solid #ffd700;
+        }
+
+        /* Scrollbar styling */
+        .chat-view::-webkit-scrollbar,
+        .moderation-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-view::-webkit-scrollbar-track,
+        .moderation-content::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+        }
+
+        .chat-view::-webkit-scrollbar-thumb,
+        .moderation-content::-webkit-scrollbar-thumb {
+            background: var(--input-bg);
+            border-radius: 3px;
+        }
+
+        .chat-view::-webkit-scrollbar-thumb:hover,
+        .moderation-content::-webkit-scrollbar-thumb:hover {
+            background: var(--border-color);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .bubble {
+            animation: slideIn 0.3s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="top-header">
+        <h1><i class="fas fa-shield-alt"></i> Chat Moderator Dashboard</h1>
+        <p>Real-time content moderation with AI-powered rephrasing <span class="status-indicator"
+                id="connectionStatus"></span></p>
+    </div>
+
+    <div class="main-container">
+        <!-- LEFT PANEL: SENDER -->
+        <div class="panel left-panel">
+            <div class="panel-header">
+                <i class="fas fa-paper-plane" style="color: var(--accent-green);"></i>
+                <div>
+                    <h2>Sender View</h2>
+                    <p>Type and send messages</p>
+                </div>
+            </div>
+
+            <div class="chat-view" id="messageHistory">
+                <div class="system bubble">
+                    <i class="fas fa-info-circle"></i> Type a message to begin testing
+                </div>
+            </div>
+
+            <div class="input-bar">
+                <textarea id="messageInput" placeholder="Type a message..." rows="1"></textarea>
+                <button onclick="sendMessage()">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- CENTER PANEL: MODERATION ENGINE -->
+        <div class="panel center-panel">
+            <div class="panel-header">
+                <i class="fas fa-cogs" style="color: var(--accent-green);"></i>
+                <div>
+                    <h2>Moderation Engine</h2>
+                    <p>AI analysis and decision-making</p>
+                </div>
+            </div>
+
+            <div class="moderation-content">
+                <div class="toxicity-card">
+                    <div class="toxicity-label">
+                        <i class="fas fa-chart-line"></i>
+                        Toxicity Score
+                    </div>
+                    <div class="toxicity-score safe" id="toxicityScore">0.00</div>
+                    <div class="toxicity-bar">
+                        <div class="toxicity-bar-fill" id="toxicityBarFill"
+                            style="width: 0%; background: var(--accent-green);"></div>
+                    </div>
+                    <div class="threshold-text">
+                        <i class="fas fa-ruler-horizontal"></i> Threshold: 0.50
+                    </div>
+                </div>
+
+                <div class="decision-card">
+                    <div class="decision-label">
+                        <i class="fas fa-robot"></i>
+                        AI Decision
+                    </div>
+                    <div class="decision-status forwarding" id="decisionDisplay">
+                        <div class="decision-icon">⏳</div>
+                        <div class="decision-text">Awaiting message...</div>
+                    </div>
+                </div>
+
+                <div class="flow-diagram">
+                    <div class="flow-title">
+                        <i class="fas fa-project-diagram"></i> Moderation Flow
+                    </div>
+                    <div class="flow-step">📝 Sender Input</div>
+                    <div class="flow-arrow">↓</div>
+                    <div class="flow-step">🔍 Toxicity Analysis</div>
+                    <div class="flow-arrow">↓</div>
+                    <div class="flow-step" id="flowDecision">⚖️ Decision Point (0.50)</div>
+                    <div class="flow-arrow">↓</div>
+                    <div class="flow-step">👁️ Receiver Output</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL: RECEIVER -->
+        <div class="panel right-panel">
+            <div class="panel-header">
+                <i class="fas fa-eye" style="color: var(--accent-green);"></i>
+                <div>
+                    <h2>Receiver View</h2>
+                    <p>Final delivered messages</p>
+                </div>
+            </div>
+
+            <div class="chat-view" id="receiverDisplay">
+                <div class="empty-state">
+                    <i class="fas fa-comments"></i>
+                    <div>Waiting for messages...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/moderator`);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                document.getElementById('connectionStatus').classList.add('connected');
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                document.getElementById('connectionStatus').classList.remove('connected');
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleModerationResponse(data);
+            };
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+
+            if (!text || !ws || ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            addToSenderHistory(text);
+            ws.send(JSON.stringify({ text: text }));
+            input.value = '';
+            input.style.height = '42px';
+        }
+
+        function addToSenderHistory(text) {
+            const history = document.getElementById('messageHistory');
+
+            const emptyState = history.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'bubble sent';
+            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            messageDiv.innerHTML = `<div>${text}</div><div class="time">${timestamp}</div>`;
+
+            history.appendChild(messageDiv);
+            history.scrollTop = history.scrollHeight;
+        }
+
+        function handleModerationResponse(data) {
+            const { original, final, toxicity, moderated } = data;
+            updateToxicityScore(toxicity);
+            updateDecisionDisplay(toxicity, moderated);
+            updateReceiverDisplay(final, moderated);
+        }
+
+        function updateToxicityScore(score) {
+            const scoreElement = document.getElementById('toxicityScore');
+            const barFill = document.getElementById('toxicityBarFill');
+
+            scoreElement.textContent = score.toFixed(2);
+
+            if (score >= 0.50) {
+                scoreElement.className = 'toxicity-score toxic';
+                barFill.style.background = 'var(--red-alert)';
+            } else {
+                scoreElement.className = 'toxicity-score safe';
+                barFill.style.background = 'var(--accent-green)';
+            }
+
+            barFill.style.width = `${Math.min(score * 100, 100)}%`;
+        }
+
+        function updateDecisionDisplay(score, moderated) {
+            const decisionDisplay = document.getElementById('decisionDisplay');
+
+            if (score >= 0.50) {
+                decisionDisplay.className = 'decision-status rephrasing';
+                decisionDisplay.innerHTML = `
+                    <div class="decision-icon">🔄</div>
+                    <div class="decision-text">Rephrasing using Gemini API</div>
+                `;
+            } else {
+                decisionDisplay.className = 'decision-status forwarding';
+                decisionDisplay.innerHTML = `
+                    <div class="decision-icon">✅</div>
+                    <div class="decision-text">Forwarding message as-is</div>
+                `;
+            }
+        }
+
+        function updateReceiverDisplay(finalText, moderated) {
+            const receiverDisplay = document.getElementById('receiverDisplay');
+
+            const emptyState = receiverDisplay.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'bubble received';
+            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            let messageHTML = `<div>${finalText}</div><div class="time">${timestamp}</div>`;
+
+            if (moderated) {
+                messageHTML += `<div class="moderation-notice"><i class="fas fa-shield-alt"></i> Message was moderated for appropriateness</div>`;
+            }
+
+            messageDiv.innerHTML = messageHTML;
+            receiverDisplay.appendChild(messageDiv);
+            receiverDisplay.scrollTop = receiverDisplay.scrollHeight;
+        }
+
+        // Auto-resize textarea
+        document.getElementById('messageInput').addEventListener('input', function () {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight > 120 ? 120 : this.scrollHeight) + 'px';
+        });
+
+        // Enter to send (Shift+Enter for newline)
+        document.getElementById('messageInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Connect on page load
+        connectWebSocket();
+    </script>
+</body>
+
+</html>
